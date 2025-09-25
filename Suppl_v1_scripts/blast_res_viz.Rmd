@@ -1,0 +1,202 @@
+---
+title: "Blast_distr_viz"
+author: "Zavadska Daryna"
+date: "2024-11-27"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, echo=FALSE , message=FALSE}
+##upload packages
+library(stringr)
+library(openxlsx)
+library(data.table)
+library(magrittr)
+#library(GGally)
+#library(propr)
+library(data.table)
+library(ggplot2)
+library(reshape2)
+library(tidyverse)
+library(dplyr)
+library(plyr)
+library(microshades)
+library(scales)
+library(ggbreak) 
+library(patchwork)
+library(ggpubr)
+library(gplots)
+library(PerformanceAnalytics)
+```
+
+
+# For %identitiy hits
+
+```{r}
+#for pid hits
+#Insert the name of the file and path below
+
+
+hits <- fread("subset_all.csv")
+# hits <- fread("/home/dzavadska/Data/COMPARATIVE_DATASET/phylogen_DECONTAM/subset_all_batch2.csv")
+
+```
+
+```{r}
+colnames(hits) <- c("qseqid", "sseqid", "pident", "length", "mismatch", "gapopen", "qstart", "qend", "sstart", "send", "evalue", "bitscore")
+
+ggplot(hits, aes(pident))+geom_histogram(bins = 100)
+ggplot(hits, aes(evalue))+geom_histogram()+scale_x_log10()
+ggplot(hits, aes(length))+geom_histogram(bins = 100)+scale_x_log10()
+
+#for the preprint 
+
+library(cowplot)
+
+pid <- ggplot(hits, aes(pident))+geom_histogram(bins = 100)+theme_classic()+xlab("% identity")
+eval <- ggplot(hits, aes(evalue))+geom_histogram()+scale_x_log10()+theme_classic()+xlab("e-value")
+len <- ggplot(hits, aes(length))+geom_histogram(bins = 100)+scale_x_log10()+xlab("Match length")+geom_vline(xintercept = 150, linetype="dashed", color = "red")+theme_classic()
+
+tosave <- plot_grid(pid, eval, len,  labels = c("A", "B", "C"), ncol = 3)
+
+ggsave("decont_subset.pdf", tosave, width=12, height=4)
+
+```
+
+#Cutoff detection script (actually implemented in standalone R script)
+
+```{r}
+library(stringr)
+library(data.table)
+library(magrittr)
+library(data.table)
+library(reshape2)
+library(tidyverse)
+library(dplyr)
+library(plyr)
+
+
+MIN_PERCENT_ID_BIN <- 50  # Replace with the appropriate minimum percent ID bin
+REQUIRED_CONSECUTIVE_INCREASES <- 2  # Replace with the correct number of required consecutive increases
+PERCENT_IDENTITY_BINS <- 100:50 
+
+
+
+out_df <- data.frame("Query"=c(), "Contaminant"=c(), "Cutoff"=c())
+
+for (file in list.files(pattern = "_blastout_decontam_refG_out6.txt")) {
+  hits <- fread(file)
+  if(nrow(hits)==0)next
+  colnames(hits) <- c("qseqid", "sseqid", "pident", "length", "mismatch", "gapopen", "qstart", "qend", "sstart", "send", "evalue", "bitscore")
+
+hits$evalue <- as.numeric(hits$evalue)
+hits$pident <- as.numeric(hits$pident)
+
+hits <- hits[which(hits$length>=150)]
+#hits <- hits[which(hits$evalue>=0.001)]
+
+    percent_identity_cutoff <- 100
+
+    if (nrow(hits[which(hits$pident==100)]) > nrow(hits[which(hits$pident==99)])) {
+      previous_value <- nrow(hits[which(hits$pident==99)])
+      consecutive_increases <- 0
+      index <- NA
+
+      for (i in seq(98, MIN_PERCENT_ID_BIN, -1)) {
+        current_value <- nrow(hits[which(hits$pident==i)])
+
+        if (current_value >= previous_value) {
+          consecutive_increases <- consecutive_increases + 1
+
+          if (consecutive_increases == REQUIRED_CONSECUTIVE_INCREASES) {
+            index <- i
+            break }
+        } else {
+          consecutive_increases <- 0
+        }
+
+        previous_value <- current_value
+      }
+
+       if (!is.na(index)) {percent_identity_cutoff <- index + consecutive_increases } else {percent_identity_cutoff <- percent_identity_cutoff}
+    }
+
+    query <- str_remove(file, "_transcripts.*")
+    contaminant <- str_remove(file, ".*_transcripts.fasta_")
+    contaminant <- str_remove(contaminant, "_genomic.fna.*")
+       
+    print(c(query, contaminant, percent_identity_cutoff))
+    tmp_df <- data.frame("Query"= c(query), "Contaminant"=c(contaminant), "Cutoff"=c(percent_identity_cutoff))
+    
+    out_df <- rbind(out_df, tmp_df)
+}
+
+
+write.csv(out_df, "CUTOFFS_out_df.csv")
+```
+
+
+
+
+```{r}
+library(stringr)
+library(data.table)
+library(magrittr)
+library(data.table)
+library(reshape2)
+library(tidyverse)
+library(dplyr)
+library(plyr)
+
+
+cutoffs <- fread("CUTOFFS_out_df.csv")
+
+contig_ids <-  data.frame("Species"=c(), "Contaminant_contig"=c(), "Cutoff"=c())
+
+for (file in list.files(pattern = "_blastout_decontam_refG_out6.txt")) {
+  print(file)
+  hits <- fread(file)
+  if(nrow(hits)==0)next
+  colnames(hits) <- c("qseqid", "sseqid", "pident", "length", "mismatch", "gapopen", "qstart", "qend", "sstart", "send", "evalue", "bitscore")
+
+ hits$evalue <- as.numeric(hits$evalue)
+ hits$pident <- as.numeric(hits$pident)
+
+ hits <- hits[which(hits$length>=150)]
+
+
+ pair_cutoff <- cutoffs$Cutoff[which(cutoffs$Query == query & cutoffs$Contaminant == contaminant)]
+
+ contaminant_contigs <- hits$qseqid[which(hits$pident >= pair_cutoff)]
+ query <- str_remove(file, "_transcripts.*")
+ contaminant <- str_remove(file, ".*_transcripts.fasta_")
+ contaminant <- str_remove(contaminant, "_genomic.fna.*")
+
+tmp_ids <- data.frame("Species"=c(rep(query, length(contaminant_contigs))), "Contaminant_contig"=c(contaminant_contigs), "Cutoff"=c(rep(pair_cutoff, length(contaminant_contigs))))
+
+contig_ids <- rbind(contig_ids, tmp_ids)
+
+}
+
+
+for (i in unique(contig_ids$Species)) {
+  c <- list(unique(contig_ids$Contaminant_contig[which(contig_ids$Species == i)]))
+  fwrite(c, paste0(i, "_contaminant_contig_list.txt"))
+  
+}
+
+
+```
+
+
+
+
+
+
+
+
+
+
