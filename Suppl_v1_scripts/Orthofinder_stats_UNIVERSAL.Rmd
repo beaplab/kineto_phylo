@@ -1,0 +1,708 @@
+---
+title: "Untitled"
+author: "Zavadska Daryna"
+date: "2025-01-30"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r, echo=FALSE , message=FALSE}
+##upload packages
+library(stringr)
+library(openxlsx)
+library(data.table)
+library(magrittr)
+#library(GGally)
+#library(propr)
+library(data.table)
+library(ggplot2)
+library(reshape2)
+library(tidyverse)
+library(dplyr)
+library(plyr)
+library(microshades)
+library(scales)
+library(ggbreak) 
+library(patchwork)
+library(ggpubr)
+library(gplots)
+library(PerformanceAnalytics)
+library(microshades)
+```
+
+```{r}
+colors <-c(microshades_palette("micro_blue", lightest = FALSE), 
+           microshades_palette("micro_purple", lightest = FALSE), microshades_palette("micro_cvd_purple", lightest = FALSE), 
+           microshades_palette("micro_green", lightest = FALSE), 
+           microshades_palette("micro_cvd_green", lightest = FALSE),
+           microshades_palette("micro_orange", lightest = FALSE), 
+           microshades_palette("micro_brown", lightest = FALSE), 
+           microshades_palette("micro_cvd_turquoise", lightest = FALSE),
+           microshades_palette("micro_cvd_gray", lightest = FALSE))
+
+```
+
+
+```{r}
+suffix <- "40_taxa"
+```
+
+
+```{r}
+
+path <- paste0("/home/dzavadska/Data/COMPARATIVE_DATASET/SINGLE_GENE_TREES_1ST_TRY/Ortho_finder/NR_proteins_", suffix, "/Orthogroups.GeneCount.tsv")
+df <- fread(path)
+
+df_molten <- melt(df)
+```
+
+
+```{r}
+df_molten$value <- as.numeric(df_molten$value)
+df_molten$Orthogroup <- as.factor(df_molten$Orthogroup)
+
+OG_summary <- df_molten %>%
+  group_by(Orthogroup) %>%
+  dplyr::summarize(
+    total = value[variable == "Total"], # Assumes "Total" exists once per Orthogroup
+    sd = sd(value[variable != "Total"]),
+    mean = mean(value[variable != "Total"]),
+    sp_repr = length(which(value!=0))-1
+  )
+
+
+write.csv(OG_summary, paste0("OG_summary_", suffix, ".csv"))
+
+```
+
+
+
+```{r}
+
+subset <- OG_summary[which(OG_summary$mean<=1 & OG_summary$sd<=1 & OG_summary$sp_repr>25),]
+
+subset2 <- df_molten[df_molten$Orthogroup %in% subset$Orthogroup,]
+colnames(subset2) <-c("Orthogroup", "variable", "value" ) 
+
+
+mergedsubset <- merge(subset,subset2,  by = "Orthogroup")
+mergedsubset <- mergedsubset[mergedsubset$variable!="Total",]
+mergedsubset$variable <- str_replace(mergedsubset$variable,".cdhit_pep97", " ")
+
+gg3 <- ggplot(mergedsubset, aes(x = variable, y= Orthogroup, fill=value)) + geom_tile()+theme_classic()+theme(axis.text.x = element_text(angle=90,hjust=0.99,vjust=0.1))+
+  scale_fill_gradientn(colors = hcl.colors(20, "RdYlGn"))+ggtitle(suffix)
+
+ggsave(paste0("sp_og", suffix, ".png"), gg3)
+
+```
+```{r}
+length(unique(mergedsubset$Orthogroup))
+
+length(unique(mergedsubset$Orthogroup[as.integer(mergedsubset$sp_repr)==mergedsubset$total]))
+
+sg <- mergedsubset[mergedsubset$Orthogroup %in% unique(mergedsubset$Orthogroup[as.integer(mergedsubset$sp_repr)==mergedsubset$total]),]
+
+gg4 <- ggplot(sg, aes(x = variable, y= Orthogroup, fill=value)) + geom_tile()+theme_classic()+theme(axis.text.x = element_text(angle=90,hjust=0.99,vjust=0.1))+
+  scale_fill_gradientn(colors = hcl.colors(20, "RdYlGn"))+ggtitle(suffix)
+
+ggsave(paste0("sg_25", suffix, ".png"), gg4)
+```
+
+
+
+```{r}
+groups <- fread("/home/dzavadska/Data/COMPARATIVE_DATASET/SINGLE_GENE_TREES_1ST_TRY/Ortho_finder/vocabulary_groups.csv", header = F)
+colnames(groups)<- c("variable", "group")
+
+sg_sp_occr <- sg %>% group_by(variable) %>% dplyr::summarise(occurence_in_sg = sum(value))
+
+sg_sp_occr <- merge(sg_sp_occr, groups, "variable")
+
+ggplot(sg_sp_occr, aes(variable, occurence_in_sg))+geom_point(aes(colour = group))+theme(axis.text.x = element_text(angle=90,hjust=0.99,vjust=0.1))
+
+sg_sp_occr[sg_sp_occr$occurence_in_sg<50,]
+sg_sp_occr[sg_sp_occr$occurence_in_sg<75,]
+sg_sp_occr[sg_sp_occr$occurence_in_sg<100,]
+
+```
+
+
+
+
+
+```{r}
+per_sp <- fread(paste0("/home/dzavadska/Data/COMPARATIVE_DATASET/SINGLE_GENE_TREES_1ST_TRY/Ortho_finder/NR_proteins_",suffix,"/Statistics_PerSpecies.tsv"))
+
+per_sp_molten <- melt(per_sp)
+
+per_sp2 <- dcast(per_sp_molten, variable~V1)
+
+
+gg5 <- ggplot(per_sp_molten[grep("Number", per_sp_molten$V1),], aes( V1,variable, fill=value))+geom_tile()+theme_classic()+theme(axis.text.x = element_text(size=5,angle=90,hjust=0.99,vjust=0.1), axis.text.y = element_text(size=5))+scale_fill_gradientn(colors = hcl.colors(20, "RdYlGn"))+ggtitle(suffix)
+
+ggsave(paste0("per_sp_num", suffix, ".png"), gg5)
+
+gg6 <- ggplot(per_sp_molten[grep("Percentage", per_sp_molten$V1),], aes( V1,variable, fill=value))+geom_tile()+theme_classic()+theme(axis.text.x = element_text(size=6,angle=90,hjust=0.99,vjust=0.1), axis.text.y = element_text(size=5))+scale_fill_gradientn(colors = hcl.colors(20, "RdYlGn"))+ggtitle(suffix)
+
+ggsave(paste0("per_sp_percent", suffix, ".png"),  gg6)
+
+```
+
+```{r}
+#OG_summary
+#merge(OG_summary,df_molten,  by = "Orthogroup")
+
+
+subset3 <- OG_summary#[which(OG_summary$mean<=2 & OG_summary$sd<=2 & OG_summary$sp_repr>25),]
+
+subset4 <- df_molten[df_molten$Orthogroup %in% subset3$Orthogroup,]
+colnames(subset4) <-c("Orthogroup", "variable", "value" ) 
+
+
+mergedsubset2 <- merge(subset3,subset4,  by = "Orthogroup")
+mergedsubset2 <- mergedsubset2[mergedsubset2$variable!="Total",]
+mergedsubset2$variable <- str_replace(mergedsubset$variable,".cdhit_pep97", " ")
+
+ggplot(mergedsubset2, aes(variable,value))+geom_point()+theme_classic()+theme(axis.text.x = element_text(size=6,angle=90,hjust=0.99,vjust=0.1), axis.text.y = element_text(size=5))
+
+df <- mergedsubset2 %>% group_by(variable, value) %>% dplyr::summarise(length = length(total))
+
+ggplot(df, aes(variable,value))+geom_tile(aes(fill = length))+theme_classic()+theme(axis.text.x = element_text(size=6,angle=90,hjust=0.99,vjust=0.1), axis.text.y = element_text(size=5))+scale_fill_gradientn(colors = hcl.colors(20, "RdYlGn"))+ggtitle(suffix)+scale_y_log10()
+
+
+
+
+
+```
+
+
+## All summary
+
+```{r}
+
+#list <- c("NR_proteins_40_taxa", "NR_proteins_45_taxa", "NR_proteins_48_taxa", "Results_Jan30_50taxa", "Results_Jan28_I20", "Results_Jan28_I30", "Results_Jan23")
+#list <- c("NR_proteins_90", "NR_proteins_90_50taxa", "NR_proteins_90_45taxa", "NR_proteins_90_40taxa")
+#list <- c("NR_proteins_90", "NR_proteins_90_50taxa", "NR_proteins_90_45taxa" )
+#list <- paste0(c("NR_proteins_90_50taxa", "NR_proteins_90_45taxa", "NR_proteins_90_40taxa"), "_Results_diamond_ultra_sens")
+#list <- c("NR_proteins_97_diamond_ultra_sens", "Results_Jan23", "NR_proteins_45_taxa_diamond_ultra_sens", "NR_proteins_45_taxa",  paste0(c("NR_proteins_90_50taxa", "NR_proteins_90_45taxa", "NR_proteins_90_40taxa"), "_Results_diamond_ultra_sens"))
+
+list <- c("NR_proteins_45_taxa_diamond_ultra_sens_FASTTREE" , "NR_proteins_90_45taxa_diamond_ultra_sens_FASTTREE",  "NR_proteins_45_taxa_diamond_ultra_sens", "NR_proteins_90_45taxa_Results_diamond_ultra_sens" , "NR_proteins_90_45taxa" ,  "NR_proteins_45_taxa")
+
+
+
+OG_summary <- data.frame()
+sg_summary <- data.frame()
+sg_all <- data.frame()
+
+for (suffix in list) {
+  path <- paste0("/home/dzavadska/Data/COMPARATIVE_DATASET/SINGLE_GENE_TREES_1ST_TRY/Ortho_finder/", suffix, "/Orthogroups.GeneCount.tsv")
+  df <- fread(path)
+
+  df_molten <- melt(df)
+  #######
+  
+  df_molten$value <- as.numeric(df_molten$value)
+  df_molten$Orthogroup <- as.factor(df_molten$Orthogroup)
+
+  OG_summary <- df_molten %>%
+  group_by(Orthogroup) %>%
+  dplyr::summarize(
+    total = value[variable == "Total"], # Assumes "Total" exists once per Orthogroup
+    sd = sd(value[variable != "Total"]),
+    mean = mean(value[variable != "Total"]),
+    sp_repr = length(which(value!=0))-1 ,
+    setting = suffix
+  )
+
+write.csv(OG_summary, paste0("OG_summary_", suffix, ".csv"))
+
+#########
+subset <- OG_summary[which(OG_summary$mean<=1 & OG_summary$sd<=1 & OG_summary$sp_repr>25),]
+
+subset2 <- df_molten[df_molten$Orthogroup %in% subset$Orthogroup,]
+colnames(subset2) <-c("Orthogroup", "variable", "value" ) 
+
+
+mergedsubset <- merge(subset,subset2,  by = "Orthogroup")
+mergedsubset <- mergedsubset[mergedsubset$variable!="Total",]
+mergedsubset$variable <- str_replace(mergedsubset$variable,".cdhit_pep97", " ")
+#########
+print(suffix)
+print(length(unique(mergedsubset$Orthogroup)) )
+print(length(unique(mergedsubset$Orthogroup[as.integer(mergedsubset$sp_repr)==mergedsubset$total])) )
+
+sg <- mergedsubset[mergedsubset$Orthogroup %in% unique(mergedsubset$Orthogroup[as.integer(mergedsubset$sp_repr)==mergedsubset$total]),]
+#########
+
+groups <- fread("/home/dzavadska/Data/COMPARATIVE_DATASET/SINGLE_GENE_TREES_1ST_TRY/Ortho_finder/vocabulary_groups.csv", header = F)
+colnames(groups)<- c("variable", "group")
+
+sg_sp_occr <- sg %>% group_by(variable) %>% dplyr::summarise(occurence_in_sg = sum(value))
+
+if (suffix %in% c("Results_Jan23", "Results_Jan28_I20", "Results_Jan28_I30", "NR_proteins_97_diamond_ultra_sens")) {
+  voc <- fread("/home/dzavadska/Data/COMPARATIVE_DATASET/SINGLE_GENE_TREES_1ST_TRY/Ortho_finder/vocabulary.tsv", header = F)
+  
+  for (e in voc$V2) { sg_sp_occr$variable[grep(e, sg_sp_occr$variable)] <- voc$V1[voc$V2 == e]}
+}
+
+sg_sp_occr <- merge(sg_sp_occr, groups, "variable")
+sg_sp_occr$settings <- suffix
+
+sg_summary <- rbind(sg_summary, sg_sp_occr)
+
+
+ogs <- sg %>% group_by(sp_repr) %>% dplyr::summarise(og_count = length(unique(Orthogroup)), settings = suffix)
+sg_all <- rbind(sg_all, ogs)
+}
+
+
+sum_plot <- ggplot(sg_summary, aes(variable, occurence_in_sg))+geom_point(aes(shape = group, colour=settings), size=2, alpha=0.7)+theme(axis.text.x = element_text(angle=90,hjust=0.99,vjust=0.1, size = 7))
+ggsave("sum_plot.png", sum_plot)
+
+ggplot(sg_all, aes(sp_repr, og_count))+geom_point(aes(shape=settings,colour=settings), size=2)+theme_classic() + scale_shape_manual(values=seq(0,15))
+sg_all
+#ogs <- sg %>% group_by(sp_repr) %>% dplyr::summarise(og_count = length(unique(Orthogroup)), settings = suffix)
+
+```
+
+
+```{r}
+
+#list <- c("NR_proteins_40_taxa", "NR_proteins_45_taxa", "NR_proteins_48_taxa", "Results_Jan30_50taxa", "Results_Jan28_I20", "Results_Jan28_I30", "Results_Jan23")
+#list <- c("NR_proteins_90", "NR_proteins_90_50taxa", "NR_proteins_90_45taxa", "NR_proteins_90_40taxa")
+#list <- c("NR_proteins_90", "NR_proteins_90_50taxa", "NR_proteins_90_45taxa" )
+#list <- paste0(c("NR_proteins_90_50taxa", "NR_proteins_90_45taxa", "NR_proteins_90_40taxa"), "_Results_diamond_ultra_sens")
+list <- c("NR_proteins_97_diamond_ultra_sens")
+
+params <- list(c(1,1,25), c(2,2,25), c(50,50,5))
+
+for (suffix in list) {
+
+OG_summary <- fread(paste0("OG_summary_", suffix, ".csv")) 
+
+for (X in 1:3) {
+  
+
+subset3 <- OG_summary[which(OG_summary$mean<=params[[X]][1] & OG_summary$sd<=params[[X]][2] & OG_summary$sp_repr>params[[X]][3]),]
+
+subset4 <- df_molten[df_molten$Orthogroup %in% subset3$Orthogroup,]
+colnames(subset4) <-c("Orthogroup", "variable", "value" ) 
+
+mergedsubset2 <- merge(subset3,subset4,  by = "Orthogroup")
+mergedsubset2 <- mergedsubset2[mergedsubset2$variable!="Total",]
+mergedsubset2$variable <- str_replace(mergedsubset2$variable,".cdhit_pep97", " ")
+
+df <- mergedsubset2 %>% group_by(variable, value) %>% dplyr::summarise(length = length(total))
+
+sp_plot <- ggplot(df, aes(variable,value))+geom_tile(aes(fill = length))+theme_classic()+theme(axis.text.x = element_text(size=6,angle=90,hjust=0.99,vjust=0.1), axis.text.y = element_text(size=5))+scale_fill_gradientn(colors = hcl.colors(20, "RdYlGn"))+ggtitle(paste0(suffix, params[[X]]))
+
+ggsave(paste0("sp_plot", suffix, params[[X]], ".png"), sp_plot)
+}
+}
+```
+
+
+## TOTAL SUMMARY
+
+```{r}
+
+#list <- c("NR_proteins_40_taxa", "NR_proteins_45_taxa", "NR_proteins_48_taxa", "Results_Jan30_50taxa", "Results_Jan28_I20", "Results_Jan28_I30", "Results_Jan23")
+#list <- c("NR_proteins_90", "NR_proteins_90_50taxa", "NR_proteins_90_45taxa", "NR_proteins_90_40taxa")
+#list <- c("NR_proteins_90", "NR_proteins_90_50taxa", "NR_proteins_90_45taxa" )
+#list <- paste0(c("NR_proteins_90_50taxa", "NR_proteins_90_45taxa", "NR_proteins_90_40taxa"), "_Results_diamond_ultra_sens")
+#list <- c("NR_proteins_97_diamond_ultra_sens", "Results_Jan23", "NR_proteins_45_taxa_diamond_ultra_sens", "NR_proteins_45_taxa",  paste0(c("NR_proteins_90_50taxa", "NR_proteins_90_45taxa", "NR_proteins_90_40taxa"), "_Results_diamond_ultra_sens"))
+#list <- c("NR_proteins_45_taxa_diamond_ultra_sens_FASTTREE" , "NR_proteins_90_45taxa_diamond_ultra_sens_FASTTREE",  "NR_proteins_45_taxa_diamond_ultra_sens", "NR_proteins_90_45taxa_Results_diamond_ultra_sens" , "NR_proteins_90_45taxa" ,  "NR_proteins_45_taxa")
+
+list <- list.files("Summaries_SINGLE_GENE_TREES_1ST_TRY", pattern = "_Orthogroups.GeneCount.tsv")
+
+OG_summary <- data.frame()
+sg_summary <- data.frame()
+sg_all <- data.frame()
+
+for (suffix in list) {
+  short_suffix <- str_replace(suffix, "_Orthogroups.GeneCount.tsv", "")
+  path <- paste0("/home/dzavadska/Data/COMPARATIVE_DATASET/SINGLE_GENE_TREES_1ST_TRY/Ortho_finder/Summaries_SINGLE_GENE_TREES_1ST_TRY/", suffix)
+  df <- fread(path)
+
+  df_molten <- melt(df)
+  #######
+  
+  df_molten$value <- as.numeric(df_molten$value)
+  df_molten$Orthogroup <- as.factor(df_molten$Orthogroup)
+
+  OG_summary <- df_molten %>%
+  group_by(Orthogroup) %>%
+  dplyr::summarize(
+    total = value[variable == "Total"], # Assumes "Total" exists once per Orthogroup
+    sd = sd(value[variable != "Total"]),
+    mean = mean(value[variable != "Total"]),
+    sp_repr = length(unique(variable[which(value!=0)]))-1 ,
+    setting = short_suffix
+  )
+
+write.csv(OG_summary, paste0("OG_summary_", short_suffix, ".csv"))
+
+#########
+subset <- OG_summary[which(OG_summary$mean<=1 & OG_summary$sd<=1 & OG_summary$sp_repr>25),]
+### !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+### !!! the following line ONLY if you want the filtering setting similar to the one used in the final set
+#subset <- subset[which(subset$mean>=0.9 & subset$sd<=0.5 & subset$sp_repr>35),]
+### !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+subset2 <- df_molten[df_molten$Orthogroup %in% subset$Orthogroup,]
+colnames(subset2) <-c("Orthogroup", "variable", "value" ) 
+
+
+mergedsubset <- merge(subset,subset2,  by = "Orthogroup")
+mergedsubset <- mergedsubset[mergedsubset$variable!="Total",]
+mergedsubset$variable <- str_replace(mergedsubset$variable,".cdhit_pep97", " ")
+#########
+print(short_suffix)
+print(length(unique(mergedsubset$Orthogroup)) )
+print(length(unique(mergedsubset$Orthogroup[as.integer(mergedsubset$sp_repr)==mergedsubset$total])) )
+
+sg <- mergedsubset#[mergedsubset$Orthogroup %in% unique(mergedsubset$Orthogroup[as.integer(mergedsubset$sp_repr)==mergedsubset$total]),]
+#########
+
+groups <- fread("/home/dzavadska/Data/COMPARATIVE_DATASET/SINGLE_GENE_TREES_1ST_TRY/Ortho_finder/vocabulary_groups.csv", header = F)
+colnames(groups)<- c("variable", "group")
+
+sg_sp_occr <- sg %>% group_by(variable) %>% dplyr::summarise(occurence_in_sg = sum(value))
+
+if (length(grep("NR_proteins_97", suffix))>0) {
+  voc <- fread("/home/dzavadska/Data/COMPARATIVE_DATASET/SINGLE_GENE_TREES_1ST_TRY/Ortho_finder/vocabulary.tsv", header = F)
+  
+  for (e in voc$V2) { sg_sp_occr$variable[grep(e, sg_sp_occr$variable)] <- voc$V1[voc$V2 == e]}
+}
+if ( any( c("Results_Jan23", "Results_Jan28_I20", "Results_Jan28_I30") %in% suffix)) {
+  voc <- fread("/home/dzavadska/Data/COMPARATIVE_DATASET/SINGLE_GENE_TREES_1ST_TRY/Ortho_finder/vocabulary.tsv", header = F)
+  
+  for (e in voc$V2) { sg_sp_occr$variable[grep(e, sg_sp_occr$variable)] <- voc$V1[voc$V2 == e]}
+}
+
+
+
+sg_sp_occr <- merge(sg_sp_occr, groups, "variable")
+sg_sp_occr$settings <- short_suffix
+
+sg_summary <- rbind(sg_summary, sg_sp_occr)
+
+
+ogs <- sg %>% group_by(sp_repr) %>% dplyr::summarise(og_count = length(unique(Orthogroup)), settings = short_suffix)
+sg_all <- rbind(sg_all, ogs)
+}
+
+
+sum_plot <- ggplot(sg_summary, aes(variable, occurence_in_sg))+geom_point(aes(shape = group, colour=settings), size=2, alpha=0.7)+theme_linedraw()+theme(axis.text.x = element_text(angle=90,hjust=0.99,vjust=0.1, size = 7))+scale_colour_manual(values=colors[c(57,45,24,13,27,9,6,7,33,34,35,25,23,36,37,38,39,40,59,60,20,49,15)])
+ggsave("sum_plot.png", sum_plot, width=14)
+
+main_plot <- ggplot(sg_all, aes(sp_repr, og_count))+geom_point(aes(shape=settings,colour=settings), size=2.5, alpha=0.8)+theme_classic() + scale_shape_manual(values=seq(0,25))+scale_colour_manual(values=colors[c(57,45,24,13,27,9,6,7,33,34,35,25,23,36,37,38,39,40,59,60,20,49,15)]) 
+
+
+ggsave("main_plot.png", main_plot, width=14)
+#ogs <- sg %>% group_by(sp_repr) %>% dplyr::summarise(og_count = length(unique(Orthogroup)), settings = suffix)
+
+
+```
+
+## Filtering by OG
+
+```{r}
+
+OG_local <- fread("OG_summary_NR_proteins_90_45taxa_Results_diamond_ultra_sens.csv")
+
+subset <- OG_local[which(OG_local$mean<=1 & OG_local$sd<=1 & OG_local$sp_repr>25),]
+
+double_subset <- subset[which(subset$mean>=0.9 & subset$sd<=0.5 & subset$sp_repr>35),]
+
+fwrite(double_subset, "double_subset_NR_proteins_90_45taxa_diamond_ultra_sens.csv")
+#OG_local[which(OG_local$mean<=1 & OG_local$sd==0 & OG_local$sp_repr>25),]
+
+ggplot(subset, aes(sd))+geom_histogram()+theme_classic()
+ggplot(subset, aes(sp_repr))+geom_histogram()+theme_classic()
+ggplot(subset, aes(mean))+geom_histogram()+theme_classic()
+
+ggplot(subset, aes(mean, sd))+geom_point(aes(size = sp_repr))+theme_classic()+theme_classic()
+
+```
+
+##Plots for the preprint
+
+
+```{r}
+library(ggVennDiagram)
+library(cowplot)
+
+sd <- ggplot(OG_local, aes(sd))+geom_histogram()+theme_classic()+scale_x_log10()+geom_vline(xintercept = 0.5, linetype="dashed", color = "red")+xlab("Standard deviation of gene count/species in OG")
+mean <- ggplot(OG_local, aes(mean))+geom_histogram()+theme_classic()+scale_x_log10()+
+  geom_vline(xintercept = 1, linetype="dashed", color = "red")+
+  geom_vline(xintercept = 0.9, linetype="dashed", color = "red")+
+  xlab("Mean gene count/species in OG")
+sp <- ggplot(OG_local, aes(sp_repr))+geom_histogram()+theme_classic()+scale_y_log10()+geom_vline(xintercept = 35, linetype="dashed", color = "red")+xlab("Number of species represented in the OG")
+
+
+
+#subset[which(subset$mean>=0.9 & subset$sd<=0.5 & subset$sp_repr>35),]
+
+
+x <- list("Mean" = OG_local$Orthogroup[which(OG_local$mean<=1 & OG_local$mean>=0.9)], 
+          "SD" = OG_local$Orthogroup[which(OG_local$sd<=0.5)],
+          ">35 species" = OG_local$Orthogroup[which(OG_local$sp_repr>35 )] )
+
+# length(intersect(x$A, intersect(x$B, x$C)))
+
+venn <- 
+  ggVennDiagram(x, label_alpha = 0)+
+  scale_fill_gradient(low="grey90", high = "grey50") + theme(legend.position = "none")+scale_alpha_continuous(range=c(0.2,0.4))+
+  theme(plot.margin=margin(20, 60, 20, 60)) + coord_fixed(ratio = 0.7) 
+#  +  annotate("text", label =c("Mean<=1&>=0.9","SD<=0.5",">35 species in OG"), x = c(-1, 0.8, 0.2),y = c(-1.1, -0.8, 0.2), size = 12) 
+
+
+top_row <- plot_grid(sp, mean, sd,  labels = c("A", "B", "C"), ncol = 3)
+bottom_row <- plot_grid(venn, labels = "D", ncol = 1)
+
+# Combine rows
+panel_OG_subset <- plot_grid(top_row, bottom_row, ncol = 1, rel_heights = c(3, 5))
+
+
+ggsave("panel_OG_subset.pdf", panel_OG_subset, width=12, height=8)
+
+
+```
+
+
+```{r}
+  path <- paste0("/home/dzavadska/Data/COMPARATIVE_DATASET/SINGLE_GENE_TREES_1ST_TRY/Ortho_finder/Summaries_SINGLE_GENE_TREES_1ST_TRY/", "NR_proteins_90_45taxa_Results_diamond_ultra_sens_Orthogroups.GeneCount.tsv")
+  df <- fread(path)
+
+  df_molten <- melt(df)
+  #######
+  
+  df_molten$value <- as.numeric(df_molten$value)
+  df_molten$Orthogroup <- as.factor(df_molten$Orthogroup)
+
+  OG_summary <- df_molten %>%
+  group_by(Orthogroup) %>%
+  dplyr::summarize(
+    total = value[variable == "Total"], # Assumes "Total" exists once per Orthogroup
+    sd = sd(value[variable != "Total"]),
+    mean = mean(value[variable != "Total"]),
+    sp_repr = length(which(value!=0))-1 ,
+    setting = short_suffix
+  )
+
+#write.csv(OG_summary, paste0("OG_summary_", short_suffix, ".csv"))
+
+#########
+subset <- OG_summary[which(OG_summary$mean<=1 & OG_summary$sd<=1 & OG_summary$sp_repr>25),]
+
+subset2 <- df_molten[df_molten$Orthogroup %in% subset$Orthogroup,]
+colnames(subset2) <-c("Orthogroup", "variable", "value" ) 
+
+
+mergedsubset <- merge(subset,subset2,  by = "Orthogroup")
+mergedsubset <- mergedsubset[mergedsubset$variable!="Total",]
+mergedsubset$variable <- str_replace(mergedsubset$variable,".cdhit_pep97", " ")
+#########
+print(short_suffix)
+print(length(unique(mergedsubset$Orthogroup)) )
+print(length(unique(mergedsubset$Orthogroup[as.integer(mergedsubset$sp_repr)==mergedsubset$total])) )
+
+sg <- mergedsubset[mergedsubset$Orthogroup %in% unique(mergedsubset$Orthogroup[as.integer(mergedsubset$sp_repr)==mergedsubset$total]),]
+#########
+
+groups <- fread("/home/dzavadska/Data/COMPARATIVE_DATASET/SINGLE_GENE_TREES_1ST_TRY/Ortho_finder/vocabulary_groups.csv", header = F)
+colnames(groups)<- c("variable", "group")
+
+sg_sp_occr <- sg %>% group_by(variable) %>% dplyr::summarise(occurence_in_sg = sum(value))
+
+sg_sp_occr <- merge(sg_sp_occr, groups, "variable")
+sg_sp_occr$settings <- short_suffix
+
+sg_summary <- sg_sp_occr
+
+
+sum_plot <- ggplot(sg_summary, aes(variable, occurence_in_sg))+geom_point(aes(shape = group, colour=settings), size=2, alpha=0.7)+theme_linedraw()+theme(axis.text.x = element_text(angle=90,hjust=0.99,vjust=0.1, size = 7))+scale_colour_manual(values=colors[c(57,45,24,13,27,9,6,7,33,34,35,25,23,36,37,38,39,40,59,60,20,49,15)])
+ggsave("sum_plot_NR_proteins_45_taxa_Results_diamond_ultra_sens.png", sum_plot, width=14)
+
+
+```
+
+## Check the distribution of taxa in selected OGs.
+
+```{r}
+sel <- fread("taxa_per_OG_count.tsv")
+
+ggplot(sel, aes(Total_Headers, Unique_Headers))+geom_point()+theme_linedraw()
+
+sel %>% group_by(Unique_Headers) %>% dplyr::summarise(count = length(Total_Headers!=0))
+
+sel %>% group_by(Total_Headers) %>% dplyr::summarise(count = length(Unique_Headers!=0))
+
+sel$delta <- sel$Total_Headers - sel$Unique_Headers
+
+ggplot(sel, aes(delta))+geom_histogram()+theme_linedraw()
+
+```
+
+
+
+## PREPRINT TOTAL SUMMARY WELL-LABELLED PLOT
+
+
+
+```{r}
+
+set_vocab <- fread("all_settings_vocab.csv", header = T)
+# csv source https://docs.google.com/spreadsheets/d/1DbD8BIeRwitik-814AOgOnW5Zf2qxtp6gj9jbuyTbIU/edit?gid=2087314119#gid=2087314119
+
+set_vocab$name_of_run <- paste(set_vocab$`Orthofinder -I option`, set_vocab$`Orthofinder -S option`, set_vocab$`Orthofinder -M option`, set_vocab$redundancy_reduction_pid, set_vocab$taxa_set, sep = "; ")
+
+
+list <- list.files("Summaries_SINGLE_GENE_TREES_1ST_TRY", pattern = "_Orthogroups.GeneCount.tsv")
+
+OG_summary <- data.frame()
+sg_summary <- data.frame()
+sg_all <- data.frame()
+
+for (suffix in list) {
+  short_suffix <- str_replace(suffix, "_Orthogroups.GeneCount.tsv", "")
+  path <- paste0("/home/dzavadska/Data/COMPARATIVE_DATASET/SINGLE_GENE_TREES_1ST_TRY/Ortho_finder/Summaries_SINGLE_GENE_TREES_1ST_TRY/", suffix)
+  df <- fread(path)
+
+  df_molten <- melt(df)
+  #######
+  
+  df_molten$value <- as.numeric(df_molten$value)
+  df_molten$Orthogroup <- as.factor(df_molten$Orthogroup)
+
+  OG_summary <- df_molten %>%
+  group_by(Orthogroup) %>%
+  dplyr::summarize(
+    total = value[variable == "Total"], # Assumes "Total" exists once per Orthogroup
+    sd = sd(value[variable != "Total"]),
+    mean = mean(value[variable != "Total"]),
+    sp_repr = length(unique(variable[which(value!=0)]))-1 ,
+    setting = short_suffix
+  )
+
+write.csv(OG_summary, paste0("OG_summary_", short_suffix, ".csv"))
+
+
+
+
+#########
+subset <- OG_summary[which(OG_summary$mean<=1 & OG_summary$sd<=1 & OG_summary$sp_repr>25),]
+### !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+### !!! the following line ONLY if you want the filtering setting similar to the one used in the final set
+subset <- subset[which(subset$mean>=0.9 & subset$sd<=0.5 & subset$sp_repr>35),]
+
+print(unique(subset$setting))
+print(length(unique(subset$Orthogroup)))
+### !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+subset2 <- df_molten[df_molten$Orthogroup %in% subset$Orthogroup,]
+colnames(subset2) <-c("Orthogroup", "variable", "value" ) 
+
+
+mergedsubset <- merge(subset,subset2,  by = "Orthogroup")
+mergedsubset <- mergedsubset[mergedsubset$variable!="Total",]
+mergedsubset$variable <- str_replace(mergedsubset$variable,".cdhit_pep97", " ")
+#########
+print(short_suffix)
+print(length(unique(mergedsubset$Orthogroup)) )
+print(length(unique(mergedsubset$Orthogroup[as.integer(mergedsubset$sp_repr)==mergedsubset$total])) )
+
+sg <- mergedsubset#[mergedsubset$Orthogroup %in% unique(mergedsubset$Orthogroup[as.integer(mergedsubset$sp_repr)==mergedsubset$total]),]
+
+#unique(mergedsubset$Orthogroup)
+#########
+
+groups <- fread("/home/dzavadska/Data/COMPARATIVE_DATASET/SINGLE_GENE_TREES_1ST_TRY/Ortho_finder/vocabulary_groups.csv", header = F)
+colnames(groups)<- c("variable", "group")
+
+sg_sp_occr <- sg %>% group_by(variable) %>% dplyr::summarise(occurence_in_sg = sum(value))
+
+if (length(grep("NR_proteins_97", suffix))>0) {
+  voc <- fread("/home/dzavadska/Data/COMPARATIVE_DATASET/SINGLE_GENE_TREES_1ST_TRY/Ortho_finder/vocabulary.tsv", header = F)
+  
+  for (e in voc$V2) { sg_sp_occr$variable[grep(e, sg_sp_occr$variable)] <- voc$V1[voc$V2 == e]}
+}
+if ( any( c("Results_Jan23", "Results_Jan28_I20", "Results_Jan28_I30") %in% suffix)) {
+  voc <- fread("/home/dzavadska/Data/COMPARATIVE_DATASET/SINGLE_GENE_TREES_1ST_TRY/Ortho_finder/vocabulary.tsv", header = F)
+  
+  for (e in voc$V2) { sg_sp_occr$variable[grep(e, sg_sp_occr$variable)] <- voc$V1[voc$V2 == e]}
+}
+
+
+
+sg_sp_occr <- merge(sg_sp_occr, groups, "variable")
+sg_sp_occr$settings <- short_suffix
+
+sg_summary <- rbind(sg_summary, sg_sp_occr)
+
+
+ogs <- sg %>% group_by(sp_repr) %>% dplyr::summarise(og_count = length(unique(Orthogroup)), settings = short_suffix)
+
+sg_all <- rbind(sg_all, ogs)
+}
+
+sg_summary$setting_combination <- set_vocab$name_of_run[match(sg_summary$settings, set_vocab$R_name_of_run)]
+sg_all$setting_combination <- set_vocab$name_of_run[match(sg_all$settings, set_vocab$R_name_of_run)]
+
+for (i in unique(sg_summary$setting_combination)){
+  sg_summary$og_number[sg_summary$setting_combination==i] <- sum(sg_all$og_count[sg_all$setting_combination==i])
+  print(sum(sg_all$og_count[sg_all$setting_combination==i]))
+}
+#debug
+#sg_all[sg_all$setting_combination=="I = 1.5 (default); diamond_ultra_sens; msa; 90; 45",]
+#sg_summary$og_number[sg_summary$setting_combination=="I = 1.5 (default); diamond_ultra_sens; msa; 90; 45"]
+#sg_summary[sg_summary$variable == "Ploeotia_vitrea",]
+
+sum_plot <- ggplot(sg_summary, aes(variable, occurence_in_sg/og_number))+geom_point(aes( colour= group, shape=setting_combination), size=2, alpha=0.7)+theme_linedraw()+theme(axis.text.x = element_text(angle=90,hjust=0.99,vjust=0.1, size = 7))+ scale_shape_manual(values=seq(0,25))+scale_colour_manual(values=colors[c(57,45,24,13,27,9,6,7,33,34,35,25,23,36,37,38,39,40,59,60,20,49,15)])+ 
+  guides(colour = guide_legend(ncol = 1), shape  = guide_legend(ncol = 1))
+ggsave("sum_plot_PREPRINT.png", sum_plot, width=14, height=9)
+
+
+main_plot <- ggplot(sg_all, aes(sp_repr, og_count))+geom_point(aes(shape=setting_combination,colour=setting_combination), size=2.5, alpha=0.8)+theme_classic() + scale_shape_manual(values=seq(0,25))+scale_colour_manual(values=colors[c(57,45,24,13,27,9,6,7,33,34,35,25,23,36,37,38,39,40,59,60,20,49,15)]) + 
+  guides(colour = guide_legend(ncol = 1), shape  = guide_legend(ncol = 1))
+
+
+ggsave("main_plot_PREPRINT.png", main_plot, width=14)
+#ogs <- sg %>% group_by(sp_repr) %>% dplyr::summarise(og_count = length(unique(Orthogroup)), settings = suffix)
+
+
+```
+```{bash}
+grep ">" ./CONCAT.fa | sed "s/>//g" >> taxa_list.tsv
+cat taxa_list.tsv | while read i; do echo -e "$(grep -c "$i" ./CONCAT.occupancy)\t$i"; done
+
+```
+
+
+
+```{r}
+vocabulary <- fread("/home/dzavadska/Data/COMPARATIVE_DATASET/actual_trees/occ_to_plot.tsv", header = F)
+colnames(vocabulary) <- c("missing","species")
+vocabulary$fraction_present <- (469-vocabulary$missing)/469
+
+
+occ_plot <- ggplot(vocabulary, aes(fraction_present, species))+geom_point(size=2.5, alpha=0.8)+theme_bw() 
+
+ggsave("occ_plot_PREPRINT.png", occ_plot)
+
+
+
+```
+
+
+
+
+
+
+
+
