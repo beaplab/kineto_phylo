@@ -87,6 +87,7 @@ PERCENT_IDENTITY_BINS <- 100:50
 
 out_df <- data.frame("Query"=c(), "Contaminant"=c(), "Cutoff"=c())
 
+# "_blastout_decontam_refG_out6.txt" can be obtained from decontamination BLAST process described in MASTER_commands_V2.sh
 for (file in list.files(pattern = "_blastout_decontam_refG_out6.txt")) {
   hits <- fread(file)
   if(nrow(hits)==0)next
