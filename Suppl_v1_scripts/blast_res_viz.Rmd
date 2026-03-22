@@ -39,8 +39,8 @@ library(PerformanceAnalytics)
 #for pid hits
 #Insert the name of the file and path below
 
-
-hits <- fread("subset_all.csv")
+hits <- fread("subset_both_batches.csv") 
+# hits <- fread("subset_all.csv")
 # hits <- fread("/home/dzavadska/Data/COMPARATIVE_DATASET/phylogen_DECONTAM/subset_all_batch2.csv")
 
 ```
